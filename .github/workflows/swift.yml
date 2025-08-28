@@ -1,5 +1,5 @@
 # This workflow will build a Swift project
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-swift
+# For more information, see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-swift
 
 name: Swift
 
@@ -10,13 +10,24 @@ on:
     branches: [ "main" ]
 
 jobs:
-  build:
-
+  build-test:
     runs-on: macos-latest
-
     steps:
-    - uses: actions/checkout@v4
-    - name: Build
-      run: swift build -v
-    - name: Run tests
-      run: swift test -v
+      - uses: actions/checkout@v4
+      - name: Xcode Select
+        run: sudo xcode-select -s /Applications/Xcode_16.app
+      - name: Build & Test with Coverage
+        run: |
+          xcodebuild -scheme NewsReader \
+            -destination 'platform=iOS Simulator,name=iPhone 15' \
+            -enableCodeCoverage YES \
+            test
+      - name: Export Coverage
+        run: |
+          xcrun xccov view --report --json \
+            ~/Library/Developer/Xcode/DerivedData/*/Logs/Test/*.xcresult > coverage.json
+      - name: Upload Coverage Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.json
