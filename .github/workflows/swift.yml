@@ -12,77 +12,110 @@ on:
 jobs:
   build-test:
     runs-on: macos-latest
+
+    env:
+      SCHEME: NewsReader  # <- change if your scheme name differs
+
     steps:
       - uses: actions/checkout@v4
 
-      # Pick a known-good Xcode; adjust if your runner has a different path.
+      # Pin an Xcode that has iOS 17.x runtimes on GH-hosted runners (adjust if needed).
       - name: Select Xcode
         run: |
           set -e
           if [ -d "/Applications/Xcode_15.4.app" ]; then
             sudo xcode-select -s "/Applications/Xcode_15.4.app"
-          else
-            echo "Xcode_15.4 not found, using default:"
-            xcodebuild -version
+          elif [ -d "/Applications/Xcode_16.app" ]; then
+            # If your repo requires Xcode 16, use this instead:
+            sudo xcode-select -s "/Applications/Xcode_16.app"
           fi
-
-      - name: Show Xcode & SDKs
-        run: |
           xcodebuild -version
           xcodebuild -showsdks
 
-      - name: List available iPhone simulators (debug)
+      # Figure out if this is a CocoaPods workspace or a plain project
+      - name: Resolve Xcode container (workspace/project)
+        id: resolve
         run: |
-          python3 - <<'PY'
-          import json, subprocess
-          data = json.loads(subprocess.check_output(["xcrun","simctl","list","devices","--json"]))
-          for rt, devs in data["devices"].items():
-              for dev in devs:
-                  if dev.get("isAvailable") and "iPhone" in dev.get("name",""):
-                      print(f"- {dev['name']} • {rt} • {dev['udid']}")
-          PY
+          set -euo pipefail
+          if compgen -G "*.xcworkspace" > /dev/null; then
+            WS=$(ls -1 *.xcworkspace | head -n1)
+            echo "kind=workspace" >> "$GITHUB_OUTPUT"
+            echo "name=$WS" >> "$GITHUB_OUTPUT"
+          elif compgen -G "*.xcodeproj" > /dev/null; then
+            PR=$(ls -1 *.xcodeproj | head -n1)
+            echo "kind=project" >> "$GITHUB_OUTPUT"
+            echo "name=$PR" >> "$GITHUB_OUTPUT"
+          else
+            echo "No .xcworkspace or .xcodeproj found at repo root"; exit 1
+          fi
 
-      # Pick the first available iPhone simulator and export to $GITHUB_OUTPUT
-      - name: Pick first available iPhone simulator
-        id: pick-sim
+      # Ask xcodebuild (not simctl) which simulator destinations are valid for THIS scheme.
+      - name: Show available destinations for scheme (debug)
         run: |
           set -e
-          python3 - <<'PY' >> "$GITHUB_OUTPUT"
-          import json, subprocess, sys
-          data = json.loads(subprocess.check_output(["xcrun","simctl","list","devices","--json"]))
-          for rt, devs in data["devices"].items():
-              for dev in devs:
-                  if dev.get("isAvailable") and "iPhone" in dev.get("name",""):
-                      print(f"udid={dev['udid']}")
-                      print(f"name={dev['name']}")
-                      print(f"runtime={rt}")
-                      sys.exit(0)
-          sys.exit("No available iPhone simulator found")
-          PY
-          echo "Picked: ${{ steps.pick-sim.outputs.name }} (${{ steps.pick-sim.outputs.runtime }})"
+          if [ "${{ steps.resolve.outputs.kind }}" = "workspace" ]; then
+            xcodebuild -workspace "${{ steps.resolve.outputs.name }}" -scheme "$SCHEME" -showdestinations -destination 'platform=iOS Simulator' | sed -n '/== Available destinations ==/,$p'
+          else
+            xcodebuild -project "${{ steps.resolve.outputs.name }}" -scheme "$SCHEME" -showdestinations -destination 'platform=iOS Simulator' | sed -n '/== Available destinations ==/,$p'
+          fi
+
+      # Parse the FIRST iOS Simulator id that xcodebuild actually offers for this scheme.
+      - name: Pick simulator id from xcodebuild output
+        id: pick
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.resolve.outputs.kind }}" = "workspace" ]; then
+            OUT=$(xcodebuild -workspace "${{ steps.resolve.outputs.name }}" -scheme "$SCHEME" -showdestinations -destination 'platform=iOS Simulator' 2>&1)
+          else
+            OUT=$(xcodebuild -project "${{ steps.resolve.outputs.name }}" -scheme "$SCHEME" -showdestinations -destination 'platform=iOS Simulator' 2>&1)
+          fi
+
+          # Grab the first "id: XXXXX-…" line that appears under Available destinations
+          SIM_ID=$(printf "%s\n" "$OUT" | awk '/== Available destinations ==/{flag=1;next}/==/{flag=0}flag' | grep -Eo 'id: [A-F0-9-]+' | head -n1 | awk '{print $2}')
+
+          if [ -z "${SIM_ID:-}" ]; then
+            echo "Could not parse a simulator id from xcodebuild -showdestinations output."
+            echo "Raw output:"
+            echo "$OUT"
+            exit 1
+          fi
+
+          echo "id=$SIM_ID" >> "$GITHUB_OUTPUT"
+          echo "Picked simulator id: $SIM_ID"
 
       - name: Boot picked simulator
         run: |
           set -e
-          xcrun simctl boot "${{ steps.pick-sim.outputs.udid }}" || true
-          xcrun simctl bootstatus "${{ steps.pick-sim.outputs.udid }}" -b
+          xcrun simctl boot "${{ steps.pick.outputs.id }}" || true
+          xcrun simctl bootstatus "${{ steps.pick.outputs.id }}" -b
 
       - name: Build & Test with Coverage
         run: |
           set -e
-          xcodebuild \
-            -scheme NewsReader \
-            -destination "platform=iOS Simulator,id=${{ steps.pick-sim.outputs.udid }}" \
-            -destination-timeout 180 \
-            -enableCodeCoverage YES \
-            test
+          if [ "${{ steps.resolve.outputs.kind }}" = "workspace" ]; then
+            xcodebuild \
+              -workspace "${{ steps.resolve.outputs.name }}" \
+              -scheme "$SCHEME" \
+              -destination "platform=iOS Simulator,id=${{ steps.pick.outputs.id }}" \
+              -destination-timeout 180 \
+              -enableCodeCoverage YES \
+              test
+          else
+            xcodebuild \
+              -project "${{ steps.resolve.outputs.name }}" \
+              -scheme "$SCHEME" \
+              -destination "platform=iOS Simulator,id=${{ steps.pick.outputs.id }}" \
+              -destination-timeout 180 \
+              -enableCodeCoverage YES \
+              test
+          fi
 
       - name: Export Coverage (JSON)
         run: |
           set -e
           xcrun xccov view --report --json \
             ~/Library/Developer/Xcode/DerivedData/*/Logs/Test/*.xcresult > coverage.json
-          ls -l coverage.json
+          wc -c coverage.json || true
           head -c 400 coverage.json || true
 
       - name: Upload Coverage Artifact
