@@ -15,67 +15,59 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Pin an Xcode that ships with iOS 17.x runtimes on GH-hosted macOS.
-      # Adjust if your org uses a different image/Xcode path.
+      # Pick a known-good Xcode; adjust if your runner has a different path.
       - name: Select Xcode
-        run: sudo xcode-select -s "/Applications/Xcode_15.4.app"
+        run: |
+          set -e
+          if [ -d "/Applications/Xcode_15.4.app" ]; then
+            sudo xcode-select -s "/Applications/Xcode_15.4.app"
+          else
+            echo "Xcode_15.4 not found, using default:"
+            xcodebuild -version
+          fi
 
       - name: Show Xcode & SDKs
         run: |
           xcodebuild -version
           xcodebuild -showsdks
 
-      - name: List simulators (debug)
+      - name: List available iPhone simulators (debug)
         run: |
-          xcrun simctl list devices --json | python3 -c 'import sys, json, textwrap
-d=json.load(sys.stdin)
-for rt, devs in d["devices"].items():
-    for dev in devs:
-        if dev.get("isAvailable") and "iPhone" in dev["name"]:
-            print(f"- {dev['name']} • {rt} • {dev['udid']}")
-'
+          python3 - <<'PY'
+          import json, subprocess
+          data = json.loads(subprocess.check_output(["xcrun","simctl","list","devices","--json"]))
+          for rt, devs in data["devices"].items():
+              for dev in devs:
+                  if dev.get("isAvailable") and "iPhone" in dev.get("name",""):
+                      print(f"- {dev['name']} • {rt} • {dev['udid']}")
+          PY
 
-      # Auto-pick the first available iPhone simulator by UDID (most robust destination).
+      # Pick the first available iPhone simulator and export to $GITHUB_OUTPUT
       - name: Pick first available iPhone simulator
         id: pick-sim
-        shell: bash
         run: |
-          set -euo pipefail
-          # Parse from JSON to avoid name/OS ambiguity.
-          readarray -t FIELDS < <(xcrun simctl list devices --json | python3 - <<'PY'
-import sys, json
-d = json.load(sys.stdin)
-for runtime, devs in d["devices"].items():
-    for dev in devs:
-        if dev.get("isAvailable") and "iPhone" in dev["name"]:
-            print(dev["udid"])
-            print(dev["name"])
-            print(runtime)
-            raise SystemExit(0)
-raise SystemExit(2)
-PY
-)
-          UDID="${FIELDS[0]}"
-          NAME="${FIELDS[1]}"
-          RUNTIME="${FIELDS[2]}"
+          set -e
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, subprocess, sys
+          data = json.loads(subprocess.check_output(["xcrun","simctl","list","devices","--json"]))
+          for rt, devs in data["devices"].items():
+              for dev in devs:
+                  if dev.get("isAvailable") and "iPhone" in dev.get("name",""):
+                      print(f"udid={dev['udid']}")
+                      print(f"name={dev['name']}")
+                      print(f"runtime={rt}")
+                      sys.exit(0)
+          sys.exit("No available iPhone simulator found")
+          PY
+          echo "Picked: ${{ steps.pick-sim.outputs.name }} (${{ steps.pick-sim.outputs.runtime }})"
 
-          echo "Picked simulator:"
-          echo "  UDID:   $UDID"
-          echo "  Name:   $NAME"
-          echo "  Runtime:$RUNTIME"
-
-          echo "udid=$UDID"   >> "$GITHUB_OUTPUT"
-          echo "name=$NAME"   >> "$GITHUB_OUTPUT"
-          echo "runtime=$RUNTIME" >> "$GITHUB_OUTPUT"
-
-      # (Optional) Boot it explicitly and wait until it's ready (xcodebuild can also boot it on demand).
       - name: Boot picked simulator
         run: |
           set -e
           xcrun simctl boot "${{ steps.pick-sim.outputs.udid }}" || true
           xcrun simctl bootstatus "${{ steps.pick-sim.outputs.udid }}" -b
 
-      - name: Build & Test with Coverage (auto-picked destination)
+      - name: Build & Test with Coverage
         run: |
           set -e
           xcodebuild \
@@ -90,6 +82,8 @@ PY
           set -e
           xcrun xccov view --report --json \
             ~/Library/Developer/Xcode/DerivedData/*/Logs/Test/*.xcresult > coverage.json
+          ls -l coverage.json
+          head -c 400 coverage.json || true
 
       - name: Upload Coverage Artifact
         uses: actions/upload-artifact@v4
