@@ -8,6 +8,13 @@ It features strict MVVM separation, client-side pagination, pull-to-refresh, ima
 
 ---
 
+## Demo Video
+
+![](./demo.mp4)
+<video height=480 src="./demo.mp4" controls preload></video>
+
+---
+
 ## Table of contents
 
 - [Project structure](#project-structure)
