@@ -10,8 +10,7 @@ It features strict MVVM separation, client-side pagination, pull-to-refresh, ima
 
 ## Demo Video
 
-![](./demo.mp4)
-<video height=480 src="./demo.mp4" controls preload></video>
+https://github.com/user-attachments/assets/f2a09619-e6e5-4489-8e0a-fb10f92f9d96
 
 ---
 
@@ -19,7 +18,6 @@ It features strict MVVM separation, client-side pagination, pull-to-refresh, ima
 
 - [Project structure](#project-structure)
 - [Modules (layers) overview](#modules-layers-overview)
-- [App setup (API key)](#app-setup-api-key)
 - [Build & run](#build--run)
 - [Tests (Swift Testing @Test)](#tests-swift-testing-test)
 - [Code coverage](#code-coverage)
