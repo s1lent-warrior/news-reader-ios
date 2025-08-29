@@ -18,8 +18,8 @@ jobs:
       PROJECT: NewsReader.xcodeproj
       TEST_PLAN: UnitTests
       CONFIGURATION: Debug
-      DESTINATION: "platform=iOS Simulator,name=iPhone 15,OS=latest"
-      RESULT_BUNDLE: TestResults.xcresult
+      DESTINATION: "platform=iOS Simulator,name=iPhone 16,OS=latest"
+      RESULT_BUNDLE: NewsRaederTestPlan.xcresult
 
     steps:
       - name: Checkout
