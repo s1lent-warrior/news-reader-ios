@@ -1,0 +1,24 @@
+{
+  "configurations" : [
+    {
+      "id" : "0E3091F8-CC34-49DD-8E15-3C8155A7D529",
+      "name" : "Configuration 1",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "testTimeoutsEnabled" : true
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:NewsReader.xcodeproj",
+        "identifier" : "FA087A532E5F0C00002CE51B",
+        "name" : "NewsReaderTests"
+      }
+    }
+  ],
+  "version" : 1
+}

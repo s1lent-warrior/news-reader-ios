@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		FA6322B52E61A62900372DF0 /* NewsRaederTestPlan.xctestplan in Resources */ = {isa = PBXBuildFile; fileRef = FA6322B42E61A62900372DF0 /* NewsRaederTestPlan.xctestplan */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		FA087A552E5F0C00002CE51B /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -19,6 +23,8 @@
 /* Begin PBXFileReference section */
 		FA087A442E5F0BFD002CE51B /* NewsReader.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NewsReader.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		FA087A542E5F0C00002CE51B /* NewsReaderTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NewsReaderTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		FA6322B32E61A56C00372DF0 /* NewsReaderTests */ = {isa = PBXFileReference; lastKnownFileType = folder; path = NewsReaderTests; sourceTree = "<group>"; };
+		FA6322B42E61A62900372DF0 /* NewsRaederTestPlan.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; name = NewsRaederTestPlan.xctestplan; path = NewsReaderTests/NewsRaederTestPlan.xctestplan; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -68,6 +74,8 @@
 		FA087A3B2E5F0BFD002CE51B = {
 			isa = PBXGroup;
 			children = (
+				FA6322B42E61A62900372DF0 /* NewsRaederTestPlan.xctestplan */,
+				FA6322B32E61A56C00372DF0 /* NewsReaderTests */,
 				FA087A462E5F0BFD002CE51B /* NewsReader */,
 				FA087A572E5F0C00002CE51B /* NewsReaderTests */,
 				FA087A452E5F0BFD002CE51B /* Products */,
@@ -175,6 +183,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				FA6322B52E61A62900372DF0 /* NewsRaederTestPlan.xctestplan in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
