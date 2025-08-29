@@ -16,10 +16,10 @@ jobs:
     env:
       SCHEME: NewsReader
       PROJECT: NewsReader.xcodeproj
-      TEST_PLAN: UnitTests
+      TEST_PLAN: NewsRaederTestPlan
       CONFIGURATION: Debug
       DESTINATION: "platform=iOS Simulator,name=iPhone 16,OS=latest"
-      RESULT_BUNDLE: NewsRaederTestPlan.xcresult
+      RESULT_BUNDLE: NewsRaederTestsResult.xcresult
 
     steps:
       - name: Checkout
