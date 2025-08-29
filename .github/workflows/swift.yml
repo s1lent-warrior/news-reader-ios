@@ -10,116 +10,103 @@ on:
     branches: [ "main" ]
 
 jobs:
-  build-test:
+  build-and-test:
     runs-on: macos-latest
 
     env:
-      SCHEME: NewsReader  # <- change if your scheme name differs
+      SCHEME: NewsReader
+      PROJECT: NewsReader.xcodeproj
+      TEST_PLAN: UnitTests
+      CONFIGURATION: Debug
+      DESTINATION: "platform=iOS Simulator,name=iPhone 15,OS=latest"
+      RESULT_BUNDLE: TestResults.xcresult
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      # Pin an Xcode that has iOS 17.x runtimes on GH-hosted runners (adjust if needed).
-      - name: Select Xcode
+      # --- Pick the newest installed Xcode 16.x (falls back to default if none found) ---
+      - name: Select Xcode 16+
+        shell: bash
         run: |
-          set -e
-          if [ -d "/Applications/Xcode_15.4.app" ]; then
-            sudo xcode-select -s "/Applications/Xcode_15.4.app"
-          elif [ -d "/Applications/Xcode_16.app" ]; then
-            # If your repo requires Xcode 16, use this instead:
-            sudo xcode-select -s "/Applications/Xcode_16.app"
+          set -euo pipefail
+          CANDIDATE=$(ls -1d /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -n1 || true)
+          if [[ -n "${CANDIDATE:-}" ]]; then
+            echo "Selecting ${CANDIDATE}"
+            sudo xcode-select -s "$CANDIDATE"
+          else
+            echo "No Xcode_16*.app found; using system default:"
+            xcodebuild -version
           fi
+
+      - name: Show Xcode & SDKs
+        run: |
           xcodebuild -version
+          echo "---- SDKs ----"
           xcodebuild -showsdks
+          echo "---- Runtimes ----"
+          xcrun simctl list runtimes
+          echo "---- Devices (available) ----"
+          xcrun simctl list devices available | sed -n '1,120p'
 
-      # Figure out if this is a CocoaPods workspace or a plain project
-      - name: Resolve Xcode container (workspace/project)
-        id: resolve
+      # Ensure an iOS simulator SDK/runtimes >= 17 exist (min deployment target is 17)
+      - name: Verify iOS 17+ SDK present
+        shell: bash
         run: |
           set -euo pipefail
-          if compgen -G "*.xcworkspace" > /dev/null; then
-            WS=$(ls -1 *.xcworkspace | head -n1)
-            echo "kind=workspace" >> "$GITHUB_OUTPUT"
-            echo "name=$WS" >> "$GITHUB_OUTPUT"
-          elif compgen -G "*.xcodeproj" > /dev/null; then
-            PR=$(ls -1 *.xcodeproj | head -n1)
-            echo "kind=project" >> "$GITHUB_OUTPUT"
-            echo "name=$PR" >> "$GITHUB_OUTPUT"
-          else
-            echo "No .xcworkspace or .xcodeproj found at repo root"; exit 1
-          fi
-
-      # Ask xcodebuild (not simctl) which simulator destinations are valid for THIS scheme.
-      - name: Show available destinations for scheme (debug)
-        run: |
-          set -e
-          if [ "${{ steps.resolve.outputs.kind }}" = "workspace" ]; then
-            xcodebuild -workspace "${{ steps.resolve.outputs.name }}" -scheme "$SCHEME" -showdestinations -destination 'platform=iOS Simulator' | sed -n '/== Available destinations ==/,$p'
-          else
-            xcodebuild -project "${{ steps.resolve.outputs.name }}" -scheme "$SCHEME" -showdestinations -destination 'platform=iOS Simulator' | sed -n '/== Available destinations ==/,$p'
-          fi
-
-      # Parse the FIRST iOS Simulator id that xcodebuild actually offers for this scheme.
-      - name: Pick simulator id from xcodebuild output
-        id: pick
-        run: |
-          set -euo pipefail
-          if [ "${{ steps.resolve.outputs.kind }}" = "workspace" ]; then
-            OUT=$(xcodebuild -workspace "${{ steps.resolve.outputs.name }}" -scheme "$SCHEME" -showdestinations -destination 'platform=iOS Simulator' 2>&1)
-          else
-            OUT=$(xcodebuild -project "${{ steps.resolve.outputs.name }}" -scheme "$SCHEME" -showdestinations -destination 'platform=iOS Simulator' 2>&1)
-          fi
-
-          # Grab the first "id: XXXXX-…" line that appears under Available destinations
-          SIM_ID=$(printf "%s\n" "$OUT" | awk '/== Available destinations ==/{flag=1;next}/==/{flag=0}flag' | grep -Eo 'id: [A-F0-9-]+' | head -n1 | awk '{print $2}')
-
-          if [ -z "${SIM_ID:-}" ]; then
-            echo "Could not parse a simulator id from xcodebuild -showdestinations output."
-            echo "Raw output:"
-            echo "$OUT"
+          if ! xcodebuild -showsdks | grep -E "iphonesimulator(17|18|19)"; then
+            echo "Required iOS 17+ Simulator SDK not found on this runner."
             exit 1
           fi
 
-          echo "id=$SIM_ID" >> "$GITHUB_OUTPUT"
-          echo "Picked simulator id: $SIM_ID"
+      # --- Cache Swift Package Manager artifacts for speed ---
+      - name: Cache SwiftPM
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/org.swift.swiftpm
+            ~/Library/Developer/Xcode/DerivedData
+          key: spm-${{ runner.os }}-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: |
+            spm-${{ runner.os }}-
 
-      - name: Boot picked simulator
+      - name: Resolve Swift Packages
         run: |
-          set -e
-          xcrun simctl boot "${{ steps.pick.outputs.id }}" || true
-          xcrun simctl bootstatus "${{ steps.pick.outputs.id }}" -b
+          xcodebuild -resolvePackageDependencies -project "$PROJECT" -scheme "$SCHEME"
 
-      - name: Build & Test with Coverage
+      # --- Build & Test with the Test Plan ---
+      - name: Build for testing
         run: |
-          set -e
-          if [ "${{ steps.resolve.outputs.kind }}" = "workspace" ]; then
-            xcodebuild \
-              -workspace "${{ steps.resolve.outputs.name }}" \
-              -scheme "$SCHEME" \
-              -destination "platform=iOS Simulator,id=${{ steps.pick.outputs.id }}" \
-              -destination-timeout 180 \
-              -enableCodeCoverage YES \
-              test
-          else
-            xcodebuild \
-              -project "${{ steps.resolve.outputs.name }}" \
-              -scheme "$SCHEME" \
-              -destination "platform=iOS Simulator,id=${{ steps.pick.outputs.id }}" \
-              -destination-timeout 180 \
-              -enableCodeCoverage YES \
-              test
-          fi
+          set -euo pipefail
+          xcodebuild \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration "$CONFIGURATION" \
+            -destination "$DESTINATION" \
+            -sdk iphonesimulator \
+            -enableCodeCoverage YES \
+            build-for-testing
 
-      - name: Export Coverage (JSON)
+      - name: Run tests (using Test Plan)
         run: |
-          set -e
-          xcrun xccov view --report --json \
-            ~/Library/Developer/Xcode/DerivedData/*/Logs/Test/*.xcresult > coverage.json
-          wc -c coverage.json || true
-          head -c 400 coverage.json || true
+          set -euo pipefail
+          rm -rf "$RESULT_BUNDLE"
+          xcodebuild \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration "$CONFIGURATION" \
+            -destination "$DESTINATION" \
+            -sdk iphonesimulator \
+            -testPlan "$TEST_PLAN" \
+            -enableCodeCoverage YES \
+            -resultBundlePath "$RESULT_BUNDLE" \
+            test
 
-      - name: Upload Coverage Artifact
+      # --- Artifacts: keep the .xcresult bundle for inspection ---
+      - name: Upload xcresult
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: coverage
-          path: coverage.json
+          name: ${{ env.RESULT_BUNDLE }}
+          path: ${{ env.RESULT_BUNDLE }}
+          retention-days: 7
